@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <!-- Bootstrap CSS -->
+    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.3.1/css/bootstrap.min.css"
+        integrity="sha384-ggOyR0iXCbMQv3Xipma34MD+dH/1fQ784/j6cY/iJTQUOhcWr7x9JvoRxT2MZw1T" crossorigin="anonymous">
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <title>SmartRoom</title>
+    <style>
+        canvas {
+            display: block;
+            margin: auto;
+            width: 80%;
+            max-width: 600px;
+        }
+
+        html, body {
+            height: 100%;
+        }
+
+        canvas {
+            height: 100%;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="jumbotron jumbotron-fluid">
+        <div class="container">
+            <h1 class="display-4">SmartRoom</h1>
+            <p class="lead">Your home at your service.</p>
+        </div>
+    </div>
+    <!-- <div class="container mt-5"> -->
+    <div class="container-fluid h-100">
+        <div class="row h-100">
+            <div class="col-md-8 h-100" id="chartCol">
+                <canvas id="myChart"></canvas>
+            </div>
+            <!-- <div class="col-md-6"> -->
+            <div class="col h-100">
+                <div class="form-group">
+                    <label for="slider">Blinds (open %):</label>
+                    <input type="range" class="form-control-range" id="slider" min="0" max="100" step="10" value="0" onchange="setBlindOpenPercentage()">
+                    <button type="button" class="btn btn-primary mb-3" id="lightSwitchButton" onclick="switchLight()">
+                        Switch Ligh
+                    </button>
+                </div>
+                <button type="button" class="btn btn-primary mb-3" id="serialModeButton" onclick="switchSerialMode()">
+                    Start Manual Control
+                </button>
+                <div>
+                    <h5>Blinds (open %): <span id="textBlinds"></span></h5>
+                    <h5>Light: <span id="textLight"></span></h5>
+                    <h5>Light Level: <span id="textLightLevel"></span></h5>
+                    <h5>Presence in room: <span id="textPresence"></span></h5>
+                    <h5>Control Mode: <span id="textControlMode"></span></h5>
+                    <h5>Simulated hour: <span id="simulatedHour"></span></h5>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bootstrap JS -->
+    <script src="https://code.jquery.com/jquery-3.3.1.slim.min.js"
+        integrity="sha384-q8i/X+965DzO0rT7abK41JStQIAqVgRVzpbzo5smXKp4YfRvH+8abtTE1Pi6jizo"
+        crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@popperjs/core@2.9.3/dist/umd/popper.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.2.2/dist/js/bootstrap.min.js"></script>
+
+    <script>
+        room = {}
+        lightUsageRelevations = []
+        timeRelevations = []
+        const maxRelevations = 24
+
+        async function getRoomData() {
+            const options = {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            }
+            let data = await fetch('/getUpdate', options)
+                .then((res) => res.json())
+
+            if (room.hour != data.hour) {
+                updateChartPoints(data.lightOn, data.hour)
+                updateChart()
+            }
+            room = data
+        }
+
+        function updateTextFields() {
+            let lightText = document.getElementById('textLight');
+            lightText.innerText = room.lightOn ? 'ON' : 'OFF';
+
+            let lightLevel = document.getElementById('textLightLevel');
+            lightLevel.innerText = room.lightLevel
+
+            let presenceText = document.getElementById('textPresence');
+            presenceText.innerText = room.presenceDetected ? 'YES' : 'NO';
+            
+            let blindText = document.getElementById('textBlinds');
+            blindText.innerText = room.blindOpenPercentage
+            
+            let controlModeText = document.getElementById('textControlMode');
+            modeText = ''
+            if (room.controlMode == 'MANUAL_SERIAL') {
+                modeText = 'SERIAL'
+            } else if (room.controlMode == 'MANUAL_BT') {
+                modeText = 'BLUETOOTH'
+            } else {
+                modeText = 'AUTO'
+            }
+            controlModeText.innerText = modeText
+
+            let simulatedHourText = document.getElementById('simulatedHour');
+            simulatedHourText.innerText = room.hour
+        }
+
+        function updateButtons() {
+            let serialModeButton = document.getElementById('serialModeButton');
+            let lightSwitchButton = document.getElementById('lightSwitchButton');
+            if (room.controlMode == 'AUTO') {
+                serialModeButton.innerText = 'Start Manual Control'
+                serialModeButton.disabled = false
+                lightSwitchButton.disabled = true
+            } else if (room.controlMode == 'MANUAL_SERIAL') {
+                serialModeButton.innerText = 'Stop Manual Control'
+                serialModeButton.disabled = false
+                lightSwitchButton.disabled = false
+            } else {
+                serialModeButton.disabled = true
+                lightSwitchButton.disabled = true
+            }
+        }
+
+        function updateSlider() {
+            var slider = document.getElementById('slider');
+            if (room.controlMode == 'MANUAL_SERIAL') {
+                slider.disabled = false
+            } else {
+                slider.disabled = true
+                slider.value = room.blindOpenPercentage
+            }
+        }
+
+        function updateGUI() {
+            updateTextFields()
+            updateButtons()
+            updateSlider()
+            //updateChartPoints(room.lightOn, room.hour)
+            //updateChart()
+        }
+
+        async function switchSerialMode() {
+            const options = {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            }
+            let data = await fetch('/switchSerialMode', options)
+                .then((res) => res.json())
+        }
+
+        async function switchLight() {
+            const options = {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            }
+            let data = await fetch('/switchLight', options)
+                .then((res) => res.json())
+        }
+
+        async function setBlindOpenPercentage() {
+            var slider = document.getElementById('slider');
+            data = {
+                remoteBlindOpenPercentage: slider.value
+            }
+            const options = {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(data)
+            }
+            let response = await fetch('/setBlindOpenPercentage', options)
+                .then((res) => res.json())
+        }
+
+        function updateChart() {
+            chart.data.datasets[0].data = lightUsageRelevations
+            chart.data.labels = timeRelevations
+            chart.update("none")
+        }
+
+        // TODO: update every minutes (hours)
+        function updateChartPoints(lightUsage, hour) {
+            lightUsageRelevations.push(lightUsage)
+            if (lightUsageRelevations.length > maxRelevations) {
+                lightUsageRelevations.shift()
+            }
+
+            //const second = new Date().getSeconds()
+            //const milli = new Date().getMilliseconds()
+            //time = second + milli / 1000
+            //time = time.toFixed(1)
+            timeRelevations.push(hour)
+            if (timeRelevations.length > maxRelevations) {
+                timeRelevations.shift()
+            }
+        }
+
+        // Chart.js
+        var ctx = document.getElementById('myChart').getContext('2d');
+        var chart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: timeRelevations,
+                datasets: [{
+                    label: 'Light Usage',
+                    data: lightUsageRelevations,
+                    backgroundColor: 'rgba(255, 99, 132, 0.2)',
+                    borderColor: 'rgba(255, 99, 132, 1)',
+                    borderWidth: 1,
+                    fill: {
+                        target: 'origin',
+                        below: 'rgb(0,0,255)'
+                    }
+                }]
+            },
+            options: {
+                scales: {
+                    y: {
+                        beginAtZero: true
+                    }
+                }
+            }
+        });
+
+        setInterval(() => {
+            getRoomData()
+            updateGUI()
+        }, 500)
+    </script>
+</body>
+
+</html>
